@@ -56,14 +56,25 @@ def enroll(server: str, code: str, name: str | None, ca_cert: str | None) -> Non
 @cli.command()
 def start() -> None:
     """Démarre le daemon agent (connexion WebSocket + heartbeat)."""
+    import asyncio
+
+    from assistant_audit_agent.websocket_client import AgentWebSocketClient
+
     if not AgentConfig.is_enrolled():
         click.echo("Agent non enrôlé. Lancez d'abord : assistant-audit-agent enroll --server URL --code CODE")
         sys.exit(1)
 
     config = AgentConfig.load()
-    logger.info("Démarrage de l'agent %s → %s", config.agent_name, config.server_url)
-    # TODO: Lancer websocket_client.py (étape 3)
-    click.echo("Daemon non encore implémenté (étape 3).")
+    client = AgentWebSocketClient(config)
+
+    click.echo(f"Démarrage de l'agent {config.agent_name} → {config.server_url}")
+
+    try:
+        asyncio.run(client.start())
+    except KeyboardInterrupt:
+        click.echo("\nArrêt de l'agent...")
+        asyncio.run(client.stop())
+        click.echo("Agent arrêté.")
 
 
 @cli.command()
