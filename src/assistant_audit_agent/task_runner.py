@@ -31,8 +31,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("task_runner")
 
-# Throttle pour les progress updates (max 1 toutes les 5s)
-PROGRESS_THROTTLE_SECONDS = 5.0
+# Throttle pour les progress updates (max 1 par seconde pour un feedback temps reel)
+PROGRESS_THROTTLE_SECONDS = 1.0
 
 
 class TaskRunner:
@@ -141,13 +141,17 @@ class TaskRunner:
         await self._send_status(task_uuid, "running")
 
         last_progress_time = 0.0
+        pending_lines: list[str] = []
 
         async def on_progress(progress: int, output_lines: list[str]) -> None:
             nonlocal last_progress_time
+            pending_lines.extend(output_lines)
             now = time.monotonic()
             if now - last_progress_time >= PROGRESS_THROTTLE_SECONDS:
                 last_progress_time = now
-                await self._send_progress(task_uuid, progress, output_lines)
+                batch = pending_lines.copy()
+                pending_lines.clear()
+                await self._send_progress(task_uuid, progress, batch)
 
         try:
             result = await asyncio.wait_for(
@@ -174,6 +178,11 @@ class TaskRunner:
             await self._send_status(task_uuid, "failed", error=str(exc))
             self._clear_current_task()
             return
+
+        # Flush les lignes restantes
+        if pending_lines:
+            await self._send_progress(task_uuid, 100 if result.success else 0, pending_lines)
+            pending_lines.clear()
 
         # Envoyer le résultat
         if result.success:
