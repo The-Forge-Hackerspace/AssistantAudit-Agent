@@ -1,0 +1,26 @@
+# Config et secrets
+agent.json
+
+# Certificats mTLS
+certs/*.pem
+certs/*.key
+
+# File d'attente hors-ligne
+queue/*.json
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
