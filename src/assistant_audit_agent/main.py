@@ -65,10 +65,12 @@ def start() -> None:
         sys.exit(1)
 
     from assistant_audit_agent.heartbeat import setup_heartbeat
+    from assistant_audit_agent.task_runner import setup_task_runner
 
     config = AgentConfig.load()
     client = AgentWebSocketClient(config)
-    setup_heartbeat(client, interval=config.heartbeat_interval)
+    heartbeat = setup_heartbeat(client, interval=config.heartbeat_interval)
+    setup_task_runner(client, config.allowed_tools, heartbeat)
 
     click.echo(f"Démarrage de l'agent {config.agent_name} → {config.server_url}")
 
