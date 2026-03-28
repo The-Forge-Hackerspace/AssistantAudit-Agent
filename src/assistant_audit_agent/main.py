@@ -66,6 +66,7 @@ def start() -> None:
 
     from assistant_audit_agent.heartbeat import setup_heartbeat
     from assistant_audit_agent.task_runner import setup_task_runner
+    from assistant_audit_agent.uploader import ResultUploader
 
     from assistant_audit_agent.tools.ad_collector_tool import ADCollectorTool
     from assistant_audit_agent.tools.nmap_tool import NmapTool
@@ -74,7 +75,15 @@ def start() -> None:
     config = AgentConfig.load()
     client = AgentWebSocketClient(config)
     heartbeat = setup_heartbeat(client, interval=config.heartbeat_interval)
-    runner = setup_task_runner(client, config.allowed_tools, heartbeat)
+    uploader = ResultUploader(config)
+
+    # Drain queue offline a la reconnexion
+    async def drain_on_connect() -> None:
+        await uploader.drain_queue()
+
+    client.on_connected(drain_on_connect)
+
+    runner = setup_task_runner(client, config.allowed_tools, heartbeat, uploader)
 
     # Enregistrer les outils disponibles
     runner.register_tool(NmapTool())

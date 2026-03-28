@@ -20,10 +20,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from typing import TYPE_CHECKING
 
 from assistant_audit_agent.heartbeat import HeartbeatService
 from assistant_audit_agent.tools import ToolBase, ToolResult
 from assistant_audit_agent.websocket_client import AgentWebSocketClient
+
+if TYPE_CHECKING:
+    from assistant_audit_agent.uploader import ResultUploader
 
 logger = logging.getLogger("task_runner")
 
@@ -42,10 +46,12 @@ class TaskRunner:
         client: AgentWebSocketClient,
         allowed_tools: list[str],
         heartbeat: HeartbeatService | None = None,
+        uploader: ResultUploader | None = None,
     ) -> None:
         self._client = client
         self._allowed_tools = set(allowed_tools)
         self._heartbeat = heartbeat
+        self._uploader = uploader
         self._tools: dict[str, ToolBase] = {}
         self._current_task_id: str | None = None
         self._current_tool: ToolBase | None = None
@@ -173,6 +179,9 @@ class TaskRunner:
         if result.success:
             await self._send_result(task_uuid, result)
             await self._send_status(task_uuid, "completed")
+            # Upload via HTTP + gestion artifacts
+            if self._uploader is not None:
+                await self._uploader.upload_result(task_uuid, tool.name, result)
         else:
             await self._send_status(task_uuid, "failed", error=result.error)
 
@@ -233,9 +242,10 @@ def setup_task_runner(
     client: AgentWebSocketClient,
     allowed_tools: list[str],
     heartbeat: HeartbeatService | None = None,
+    uploader: ResultUploader | None = None,
 ) -> TaskRunner:
     """Crée le TaskRunner et enregistre les handlers WebSocket."""
-    runner = TaskRunner(client, allowed_tools, heartbeat)
+    runner = TaskRunner(client, allowed_tools, heartbeat, uploader)
     client.on_message("new_task", runner.handle_new_task)
     client.on_message("task_cancel", runner.handle_cancel)
     return runner
