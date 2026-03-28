@@ -46,9 +46,9 @@ class AgentWebSocketClient:
         self._connected = False
         self._reconnect_attempt = 0
 
-        # Callbacks
-        self._on_connected: Callable[[], Coroutine[Any, Any, None]] | None = None
-        self._on_disconnected: Callable[[], Coroutine[Any, Any, None]] | None = None
+        # Callbacks (listes pour supporter plusieurs modules)
+        self._on_connected_callbacks: list[Callable[[], Coroutine[Any, Any, None]]] = []
+        self._on_disconnected_callbacks: list[Callable[[], Coroutine[Any, Any, None]]] = []
         self._message_handlers: dict[str, MessageHandler] = {}
 
     # ── Propriétés ────────────────────────────────────────────────────
@@ -62,11 +62,11 @@ class AgentWebSocketClient:
 
     def on_connected(self, callback: Callable[[], Coroutine[Any, Any, None]]) -> None:
         """Enregistre un callback appelé à chaque connexion réussie."""
-        self._on_connected = callback
+        self._on_connected_callbacks.append(callback)
 
     def on_disconnected(self, callback: Callable[[], Coroutine[Any, Any, None]]) -> None:
         """Enregistre un callback appelé à chaque déconnexion."""
-        self._on_disconnected = callback
+        self._on_disconnected_callbacks.append(callback)
 
     def on_message(self, msg_type: str, handler: MessageHandler) -> None:
         """Enregistre un handler pour un type de message donné.
@@ -120,6 +120,15 @@ class AgentWebSocketClient:
                 pass
             self._connection = None
         await self._set_disconnected()
+
+    async def force_reconnect(self) -> None:
+        """Force la fermeture de la connexion pour déclencher une reconnexion."""
+        logger.warning("Reconnexion forcée demandée.")
+        if self._connection is not None:
+            try:
+                await self._connection.close()
+            except Exception:
+                pass
 
     # ── Envoi de messages ─────────────────────────────────────────────
 
@@ -244,9 +253,9 @@ class AgentWebSocketClient:
     async def _set_connected(self) -> None:
         self._connected = True
         logger.info("Connecté au serveur.")
-        if self._on_connected is not None:
+        for callback in self._on_connected_callbacks:
             try:
-                await self._on_connected()
+                await callback()
             except Exception:
                 logger.exception("Erreur dans on_connected callback")
 
@@ -255,9 +264,9 @@ class AgentWebSocketClient:
             return
         self._connected = False
         logger.info("Déconnecté du serveur.")
-        if self._on_disconnected is not None:
+        for callback in self._on_disconnected_callbacks:
             try:
-                await self._on_disconnected()
+                await callback()
             except Exception:
                 logger.exception("Erreur dans on_disconnected callback")
 

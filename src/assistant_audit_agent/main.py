@@ -64,8 +64,11 @@ def start() -> None:
         click.echo("Agent non enrôlé. Lancez d'abord : assistant-audit-agent enroll --server URL --code CODE")
         sys.exit(1)
 
+    from assistant_audit_agent.heartbeat import setup_heartbeat
+
     config = AgentConfig.load()
     client = AgentWebSocketClient(config)
+    setup_heartbeat(client, interval=config.heartbeat_interval)
 
     click.echo(f"Démarrage de l'agent {config.agent_name} → {config.server_url}")
 
