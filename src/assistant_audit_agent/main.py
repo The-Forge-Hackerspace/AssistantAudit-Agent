@@ -24,17 +24,33 @@ def cli() -> None:
 @cli.command()
 @click.option("--server", required=True, help="URL du serveur AssistantAudit (ex: https://server:8000)")
 @click.option("--code", required=True, help="Code d'enrollment fourni par le serveur")
-def enroll(server: str, code: str) -> None:
+@click.option("--name", default=None, help="Nom de l'agent (défaut : hostname)")
+@click.option("--ca-cert", default=None, help="Chemin vers le CA cert pour vérifier le serveur")
+def enroll(server: str, code: str, name: str | None, ca_cert: str | None) -> None:
     """Enrôle l'agent auprès du serveur AssistantAudit."""
+    from assistant_audit_agent.enrollment import EnrollmentError, enroll as do_enroll
+
     if AgentConfig.is_enrolled():
-        logger.warning("L'agent est déjà enrôlé. Utilisez --force pour ré-enrôler (non implémenté).")
-        click.echo("Agent déjà enrôlé. Abandon.")
+        if not click.confirm("Cet agent est déjà enregistré. Ré-enrôler ?"):
+            click.echo("Abandon.")
+            return
+        # Supprimer l'ancienne config pour permettre le ré-enrollment
+        DEFAULT_CONFIG_PATH.unlink(missing_ok=True)
+
+    click.echo(f"Enrollment auprès de {server}...")
+
+    try:
+        result = do_enroll(
+            server_url=server,
+            enrollment_code=code,
+            agent_name=name,
+            ca_cert_path=ca_cert,
+        )
+    except EnrollmentError as exc:
+        click.echo(f"Erreur : {exc}", err=True)
         sys.exit(1)
 
-    click.echo(f"Enrollment auprès de {server} avec le code {code[:4]}****...")
-    # TODO: Implémenter enrollment.py (étape 2)
-    logger.info("Enrollment non encore implémenté — placeholder.")
-    click.echo("Enrollment non encore implémenté (étape 2).")
+    click.echo(f"Enrollment réussi. Agent '{result.agent_name}' enregistré ({result.agent_uuid}).")
 
 
 @cli.command()
