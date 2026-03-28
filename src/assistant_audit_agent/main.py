@@ -67,10 +67,19 @@ def start() -> None:
     from assistant_audit_agent.heartbeat import setup_heartbeat
     from assistant_audit_agent.task_runner import setup_task_runner
 
+    from assistant_audit_agent.tools.ad_collector_tool import ADCollectorTool
+    from assistant_audit_agent.tools.nmap_tool import NmapTool
+    from assistant_audit_agent.tools.oradad_tool import OradadTool
+
     config = AgentConfig.load()
     client = AgentWebSocketClient(config)
     heartbeat = setup_heartbeat(client, interval=config.heartbeat_interval)
-    setup_task_runner(client, config.allowed_tools, heartbeat)
+    runner = setup_task_runner(client, config.allowed_tools, heartbeat)
+
+    # Enregistrer les outils disponibles
+    runner.register_tool(NmapTool())
+    runner.register_tool(OradadTool())
+    runner.register_tool(ADCollectorTool())
 
     click.echo(f"Démarrage de l'agent {config.agent_name} → {config.server_url}")
 
