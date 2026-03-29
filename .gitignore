@@ -24,3 +24,6 @@ build/
 .vscode/
 .idea/
 *.swp
+
+# AI assistant metadata
+.claude/
