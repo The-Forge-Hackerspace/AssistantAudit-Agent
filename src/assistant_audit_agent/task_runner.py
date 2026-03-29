@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import TYPE_CHECKING
 
@@ -31,8 +32,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("task_runner")
 
-# Throttle pour les progress updates (max 1 par seconde pour un feedback temps reel)
-PROGRESS_THROTTLE_SECONDS = 1.0
+# Throttle pour les progress updates (max 1 toutes les 5 secondes)
+PROGRESS_THROTTLE_SECONDS = 5.0
+
+# Regex pour filtrer les lignes contenant des credentials
+_CREDENTIAL_PATTERN = re.compile(
+    r"(?:password|pwd|secret|token)\s*=", re.IGNORECASE
+)
 
 
 class TaskRunner:
@@ -211,11 +217,19 @@ class TaskRunner:
     async def _send_progress(
         self, task_uuid: str, progress: int, output_lines: list[str]
     ) -> None:
-        """Envoie une mise à jour de progression au serveur."""
+        """Envoie une mise à jour de progression au serveur.
+
+        Les lignes contenant des credentials (password=, pwd=, secret=, token=)
+        sont remplacées par un placeholder avant envoi.
+        """
+        filtered = [
+            "[FILTERED — credential detected]" if _CREDENTIAL_PATTERN.search(line) else line
+            for line in output_lines
+        ]
         await self._client.send("task_progress", {
             "task_uuid": task_uuid,
             "progress": progress,
-            "output_lines": output_lines,
+            "output_lines": filtered,
         })
 
     async def _send_result(self, task_uuid: str, result: ToolResult) -> None:
