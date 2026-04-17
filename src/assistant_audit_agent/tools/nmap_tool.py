@@ -24,6 +24,20 @@ from assistant_audit_agent.tools import OnProgressCallback, ToolBase, ToolResult
 
 logger = logging.getLogger("nmap")
 
+# ── Streaming de progression ──────────────────────────────────────────
+
+# Intervalle --stats-every imposé à nmap pour émettre des lignes de progression.
+NMAP_STATS_INTERVAL = "5s"
+
+# Nombre max de lignes brutes nmap incluses dans un message task_progress
+# (cap sous la limite 16 Ko du serveur).
+MAX_OUTPUT_LINES_PER_MESSAGE = 20
+
+# Extrait le pourcentage d'une ligne du type :
+#   "Service scan Timing: About 47.50% done; ETC: ..."
+_PROGRESS_PATTERN = re.compile(r"(\d+(?:\.\d+)?)%\s*done", re.IGNORECASE)
+
+
 # ── Validation ────────────────────────────────────────────────────────
 
 _TARGET_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/\-]{0,254}$")
@@ -106,6 +120,15 @@ class NmapTool(ToolBase):
         except ValueError as exc:
             return ToolResult(success=False, error=str(exc))
 
+        # Forcer l'émission périodique de lignes de progression par nmap.
+        # --stats-every 5s + -v : nmap écrit "XX.XX% done" toutes les 5s.
+        if "--stats-every" not in args:
+            args.insert(1, "--stats-every")
+            args.insert(2, NMAP_STATS_INTERVAL)
+        if "-v" not in args and "-vv" not in args:
+            args.insert(1, "-v")
+
+
         # Fichier de sortie XML temporaire
         tmp = tempfile.NamedTemporaryFile(suffix=".xml", prefix=f"nmap_{task_id}_", delete=False)
         tmp.close()
@@ -123,18 +146,31 @@ class NmapTool(ToolBase):
                 stderr=asyncio.subprocess.PIPE,
             )
 
-            # Lire stdout ligne par ligne (streaming)
+            # Lire stdout ligne par ligne + détecter la progression nmap
             output_lines: list[str] = []
+            last_progress = -1
+            pending_buffer: list[str] = []
             if self._process.stdout is not None:
                 while True:
                     line = await self._process.stdout.readline()
                     if not line:
                         break
                     decoded = line.decode("utf-8", errors="replace").rstrip()
-                    if decoded:
-                        output_lines.append(decoded)
-                        if on_progress is not None:
-                            await on_progress(0, [decoded])
+                    if not decoded:
+                        continue
+                    output_lines.append(decoded)
+                    pending_buffer.append(decoded)
+                    if len(pending_buffer) > MAX_OUTPUT_LINES_PER_MESSAGE:
+                        pending_buffer.pop(0)
+                    match = _PROGRESS_PATTERN.search(decoded)
+                    if match is None or on_progress is None:
+                        continue
+                    progress = max(0, min(100, round(float(match.group(1)))))
+                    if progress == last_progress:
+                        continue
+                    last_progress = progress
+                    await on_progress(progress, pending_buffer.copy())
+                    pending_buffer.clear()
 
             await self._process.wait()
             returncode = self._process.returncode

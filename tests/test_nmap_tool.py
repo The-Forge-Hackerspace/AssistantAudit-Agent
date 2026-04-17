@@ -272,7 +272,12 @@ class TestNmapToolExecution:
             proc = AsyncMock()
             proc.returncode = 0
 
-            lines = [b"Starting Nmap 7.94\n", b"Nmap scan report for 192.168.1.1\n", b""]
+            lines = [
+                b"Starting Nmap 7.94\n",
+                b"Nmap scan report for 192.168.1.1\n",
+                b"Stats: 0:00:15 elapsed; ... 50.00% done; ETC: ...\n",
+                b"",
+            ]
             line_idx = {"i": -1}
 
             async def readline():
@@ -351,6 +356,7 @@ class TestNmapToolExecution:
             b"Starting Nmap 7.94\n",
             b"Scanning 192.168.1.0/24 [1000 ports]\n",
             b"Discovered open port 22/tcp on 192.168.1.1\n",
+            b"Stats: 0:00:15 elapsed; ... 50.00% done; ETC: ...\n",
             b"",
         ]
         line_index = {"i": -1}
@@ -393,8 +399,10 @@ class TestNmapToolExecution:
                 )
 
         assert result.success
-        assert len(progress_lines) == 3
+        # Le buffer doit inclure les 3 lignes precedentes + la ligne Stats (4 au total).
+        assert len(progress_lines) == 4
         assert "Discovered open port" in progress_lines[2]
+        assert "50.00% done" in progress_lines[3]
 
         for a in result.artifacts:
             a.unlink(missing_ok=True)

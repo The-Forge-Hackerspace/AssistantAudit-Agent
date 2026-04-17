@@ -1,8 +1,10 @@
 """Tests pour le streaming de progression nmap vers le serveur via WebSocket.
 
 Couvre :
-    - nmap_tool appelle on_progress() a chaque ligne de stdout
-    - task_runner transmet on_progress au WebSocket client
+    - nmap_tool injecte --stats-every 5s + -v dans ses args
+    - nmap_tool parse "XX.XX% done" et appelle on_progress() avec dedup
+    - output_lines cape a MAX_OUTPUT_LINES_PER_MESSAGE (20)
+    - task_runner transmet on_progress au WebSocket client avec le bon schema
     - Throttle 5s respecte (pas plus d'un message toutes les 5 secondes)
     - Filtrage des credentials (password=, pwd=, secret=, token=)
 """
@@ -22,16 +24,28 @@ from assistant_audit_agent.task_runner import (
     _CREDENTIAL_PATTERN,
 )
 from assistant_audit_agent.tools import ToolBase, ToolResult
-from assistant_audit_agent.tools.nmap_tool import NmapTool
+from assistant_audit_agent.tools.nmap_tool import (
+    MAX_OUTPUT_LINES_PER_MESSAGE,
+    NMAP_STATS_INTERVAL,
+    NmapTool,
+    _PROGRESS_PATTERN,
+)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-def _make_fake_subprocess(lines: list[bytes], returncode: int = 0, xml: str | None = None):
+def _make_fake_subprocess(
+    lines: list[bytes],
+    returncode: int = 0,
+    xml: str | None = None,
+    captured_args: list[list[str]] | None = None,
+):
     """Cree un fake create_subprocess_exec qui stream les lignes donnees."""
 
     async def factory(*args, **kwargs):
+        if captured_args is not None:
+            captured_args.append(list(args))
         proc = AsyncMock()
         proc.returncode = returncode
         idx = {"i": -1}
@@ -88,20 +102,106 @@ class _FakeTool(ToolBase):
         pass
 
 
-# ── Tests nmap_tool : on_progress appele par ligne ──────────────────
+def _cleanup_artifacts(result: ToolResult) -> None:
+    for a in result.artifacts:
+        a.unlink(missing_ok=True)
 
 
-class TestNmapToolOnProgress:
-    """Verifie que nmap_tool appelle on_progress() pour chaque ligne de stdout."""
+# ── Tests parsing regex ─────────────────────────────────────────────
+
+
+class TestProgressRegex:
+    """Verifie que _PROGRESS_PATTERN capture bien les lignes nmap Stats."""
+
+    @pytest.mark.parametrize("line,expected", [
+        ("Stats: 0:01:23 elapsed; 0 hosts completed. 47.50% done; ETC: ...", "47.50"),
+        ("Service scan Timing: About 12.34% done; ETC: 18:42 (0:00:35 remaining)", "12.34"),
+        ("Parallel DNS resolution of 256 hosts. Timing: About 99.9% done", "99.9"),
+        ("SYN Stealth Scan Timing: About 100.00% done", "100.00"),
+        ("Starting Nmap 7.94", None),
+        ("Discovered open port 22/tcp on 10.0.0.1", None),
+    ])
+    def test_pattern_matches(self, line: str, expected: str | None) -> None:
+        m = _PROGRESS_PATTERN.search(line)
+        if expected is None:
+            assert m is None
+        else:
+            assert m is not None
+            assert m.group(1) == expected
+
+    def test_parsing_rounds_correctly(self) -> None:
+        """47.50% → round(47.50) = 48 (banker's rounding mais 47.5 tombe sur 48)."""
+        # round(47.50) avec banker's rounding → 48 (puisque 47.5 est arrondi au pair le plus proche)
+        # En pratique round(47.5) = 48 en Python 3.
+        m = _PROGRESS_PATTERN.search(
+            "Stats: 0:01:23 elapsed; ... 47.50% done; ETC: ..."
+        )
+        assert m is not None
+        value = round(float(m.group(1)))
+        assert value == 48
+
+
+# ── Tests nmap_tool : injection des flags ──────────────────────────
+
+
+class TestNmapFlagInjection:
+    """Verifie que --stats-every 5s et -v sont injectes dans les args nmap."""
 
     @pytest.mark.asyncio
-    async def test_each_stdout_line_triggers_on_progress(self) -> None:
+    async def test_stats_every_flag_injected(self) -> None:
+        """--stats-every 5s doit etre passe a nmap."""
+        captured: list[list[str]] = []
+        lines = [b""]
+
+        tool = NmapTool()
+        fake = _make_fake_subprocess(lines, captured_args=captured)
+
+        with patch("assistant_audit_agent.tools.nmap_tool._nmap_available", return_value=True):
+            with patch("asyncio.create_subprocess_exec", side_effect=fake):
+                result = await tool.execute("task-1", {"target": "10.0.0.1"})
+
+        assert result.success
+        assert len(captured) == 1
+        args = captured[0]
+        assert "--stats-every" in args
+        idx = args.index("--stats-every")
+        assert args[idx + 1] == NMAP_STATS_INTERVAL == "5s"
+        _cleanup_artifacts(result)
+
+    @pytest.mark.asyncio
+    async def test_verbose_flag_injected(self) -> None:
+        """-v doit etre ajoute pour forcer l'emission des lignes Stats."""
+        captured: list[list[str]] = []
+        lines = [b""]
+
+        tool = NmapTool()
+        fake = _make_fake_subprocess(lines, captured_args=captured)
+
+        with patch("assistant_audit_agent.tools.nmap_tool._nmap_available", return_value=True):
+            with patch("asyncio.create_subprocess_exec", side_effect=fake):
+                result = await tool.execute("task-1", {"target": "10.0.0.1"})
+
+        assert result.success
+        args = captured[0]
+        assert "-v" in args or "-vv" in args
+        _cleanup_artifacts(result)
+
+
+# ── Tests nmap_tool : parsing + dedup + buffer ──────────────────────
+
+
+class TestNmapProgressStreaming:
+    """Verifie que nmap_tool appelle on_progress() sur les lignes Stats uniquement."""
+
+    @pytest.mark.asyncio
+    async def test_stats_line_triggers_on_progress(self) -> None:
+        """Une ligne '47.50% done' produit un on_progress(48, [...])."""
         lines = [
             b"Starting Nmap 7.94\n",
             b"Scanning 10.0.0.0/24\n",
+            b"Stats: 0:00:15 elapsed; 0 hosts completed. 47.50% done; ETC: ...\n",
             b"Discovered open port 22/tcp\n",
-            b"Discovered open port 80/tcp\n",
-            b"",  # EOF
+            b"",
         ]
 
         progress_calls: list[tuple[int, list[str]]] = []
@@ -119,19 +219,111 @@ class TestNmapToolOnProgress:
                 )
 
         assert result.success
-        # on_progress doit etre appele une fois par ligne non-vide
-        assert len(progress_calls) == 4
-        # Chaque appel contient une seule ligne
-        for _, lines_batch in progress_calls:
-            assert len(lines_batch) == 1
+        assert len(progress_calls) == 1
+        progress, lines_batch = progress_calls[0]
+        assert progress == 48  # round(47.50) = 48
+        # Le buffer doit inclure les lignes precedentes + la ligne Stats
+        assert any("47.50% done" in ln for ln in lines_batch)
+        _cleanup_artifacts(result)
 
-        for a in result.artifacts:
-            a.unlink(missing_ok=True)
+    @pytest.mark.asyncio
+    async def test_lines_without_progress_dont_emit(self) -> None:
+        """Les lignes sans '% done' n'appellent pas on_progress."""
+        lines = [
+            b"Starting Nmap 7.94\n",
+            b"Scanning 10.0.0.0/24\n",
+            b"Discovered open port 22/tcp\n",
+            b"Discovered open port 80/tcp\n",
+            b"",
+        ]
+
+        progress_calls: list[tuple[int, list[str]]] = []
+
+        async def capture(progress: int, output_lines: list[str]) -> None:
+            progress_calls.append((progress, output_lines))
+
+        tool = NmapTool()
+        fake = _make_fake_subprocess(lines)
+
+        with patch("assistant_audit_agent.tools.nmap_tool._nmap_available", return_value=True):
+            with patch("asyncio.create_subprocess_exec", side_effect=fake):
+                result = await tool.execute(
+                    "task-1", {"target": "10.0.0.0/24"}, on_progress=capture,
+                )
+
+        assert result.success
+        assert progress_calls == []
+        _cleanup_artifacts(result)
+
+    @pytest.mark.asyncio
+    async def test_progress_dedup(self) -> None:
+        """Deux lignes consecutives avec 47.50% ne produisent qu'un seul on_progress."""
+        lines = [
+            b"Starting Nmap 7.94\n",
+            b"Stats: 0:00:15 elapsed; ... 47.50% done; ETC: ...\n",
+            b"Stats: 0:00:20 elapsed; ... 47.50% done; ETC: ...\n",
+            b"Stats: 0:00:25 elapsed; ... 60.00% done; ETC: ...\n",
+            b"Stats: 0:00:30 elapsed; ... 60.00% done; ETC: ...\n",
+            b"",
+        ]
+
+        progress_calls: list[tuple[int, list[str]]] = []
+
+        async def capture(progress: int, output_lines: list[str]) -> None:
+            progress_calls.append((progress, output_lines))
+
+        tool = NmapTool()
+        fake = _make_fake_subprocess(lines)
+
+        with patch("assistant_audit_agent.tools.nmap_tool._nmap_available", return_value=True):
+            with patch("asyncio.create_subprocess_exec", side_effect=fake):
+                result = await tool.execute(
+                    "task-1", {"target": "10.0.0.0/24"}, on_progress=capture,
+                )
+
+        assert result.success
+        # 5 lignes Stats (dont 47.50 x2 puis 60.00 x2) → 2 valeurs distinctes = 2 envois
+        progress_values = [p for p, _ in progress_calls]
+        assert progress_values == [48, 60]
+        _cleanup_artifacts(result)
+
+    @pytest.mark.asyncio
+    async def test_output_lines_capped_at_20(self) -> None:
+        """Le buffer output_lines ne depasse jamais 20 lignes."""
+        # Generer 50 lignes avant un Stats → le buffer doit etre cape a 20
+        preamble = [f"Line number {i}\n".encode() for i in range(50)]
+        stats = [b"Stats: 0:00:15 elapsed; ... 10.00% done; ETC: ...\n"]
+        lines = preamble + stats + [b""]
+
+        progress_calls: list[tuple[int, list[str]]] = []
+
+        async def capture(progress: int, output_lines: list[str]) -> None:
+            progress_calls.append((progress, output_lines))
+
+        tool = NmapTool()
+        fake = _make_fake_subprocess(lines)
+
+        with patch("assistant_audit_agent.tools.nmap_tool._nmap_available", return_value=True):
+            with patch("asyncio.create_subprocess_exec", side_effect=fake):
+                result = await tool.execute(
+                    "task-1", {"target": "10.0.0.0/24"}, on_progress=capture,
+                )
+
+        assert result.success
+        assert len(progress_calls) == 1
+        _, lines_batch = progress_calls[0]
+        assert len(lines_batch) <= MAX_OUTPUT_LINES_PER_MESSAGE == 20
+
+        _cleanup_artifacts(result)
 
     @pytest.mark.asyncio
     async def test_no_callback_still_works(self) -> None:
-        """Execution sans on_progress ne plante pas."""
-        lines = [b"Starting Nmap\n", b""]
+        """Execution sans on_progress ne plante pas meme avec des lignes Stats."""
+        lines = [
+            b"Starting Nmap\n",
+            b"Stats: 0:00:15 elapsed; ... 50.00% done; ETC: ...\n",
+            b"",
+        ]
         tool = NmapTool()
 
         with patch("assistant_audit_agent.tools.nmap_tool._nmap_available", return_value=True):
@@ -139,11 +331,10 @@ class TestNmapToolOnProgress:
                 result = await tool.execute("task-1", {"target": "10.0.0.1"})
 
         assert result.success
-        for a in result.artifacts:
-            a.unlink(missing_ok=True)
+        _cleanup_artifacts(result)
 
 
-# ── Tests task_runner : throttle 5s ─────────────────────────────────
+# ── Tests task_runner : throttle 5s + schema JSON ───────────────────
 
 
 class TestProgressThrottle:
@@ -194,7 +385,6 @@ class TestProgressThrottle:
 
         # Simuler le throttle en patchant time.monotonic
         call_count = {"n": 0}
-        original_monotonic = time.monotonic
 
         def fake_monotonic():
             # Chaque appel a on_progress avance de 6 secondes
@@ -219,6 +409,32 @@ class TestProgressThrottle:
         ]
         # Chaque ligne espacee de 6s > 5s throttle, donc chacune envoyee + flush final
         assert len(progress_calls) >= 3
+
+
+class TestProgressPayloadSchema:
+    """Verifie que le payload task_progress respecte le schema attendu."""
+
+    @pytest.mark.asyncio
+    async def test_payload_matches_schema(self) -> None:
+        """task_progress contient task_uuid (str), progress (int), output_lines (list[str])."""
+        ws_client = AsyncMock()
+        ws_client.send = AsyncMock()
+
+        runner = TaskRunner(ws_client, allowed_tools=["nmap"])
+
+        await runner._send_progress("uuid-abc", 42, ["Starting Nmap 7.94"])
+
+        ws_client.send.assert_called_once()
+        msg_type = ws_client.send.call_args.args[0]
+        payload = ws_client.send.call_args.args[1]
+
+        assert msg_type == "task_progress"
+        assert isinstance(payload, dict)
+        assert payload["task_uuid"] == "uuid-abc"
+        assert isinstance(payload["progress"], int)
+        assert payload["progress"] == 42
+        assert isinstance(payload["output_lines"], list)
+        assert all(isinstance(x, str) for x in payload["output_lines"])
 
 
 # ── Tests filtrage credentials ──────────────────────────────────────
