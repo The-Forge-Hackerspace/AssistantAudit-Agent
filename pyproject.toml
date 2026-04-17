@@ -7,7 +7,7 @@ name = "assistant-audit-agent"
 version = "0.1.0"
 description = "Agent léger pour audits de sécurité IT — se connecte au serveur AssistantAudit via mTLS + WebSocket."
 readme = "README.md"
-license = "MIT"
+license = "AGPL-3.0-only"
 requires-python = ">=3.11"
 dependencies = [
     "websockets>=13.0",
