@@ -146,19 +146,28 @@ class NmapTool(ToolBase):
                 stderr=asyncio.subprocess.PIPE,
             )
 
-            # Lire stdout ligne par ligne + détecter la progression nmap
+            # Lire stdout ET stderr en concurrence : sur Windows, nmap écrit
+            # les lignes "Stats: ... XX.XX% done" sur stderr. Lire stdout pendant
+            # l'exécution puis stderr après wait() bloquait le parser de progression.
             output_lines: list[str] = []
+            stderr_lines: list[str] = []
             last_progress = -1
             pending_buffer: list[str] = []
-            if self._process.stdout is not None:
+
+            async def _drain(stream: asyncio.StreamReader | None, *, is_stderr: bool = False) -> None:
+                nonlocal last_progress
+                if stream is None:
+                    return
                 while True:
-                    line = await self._process.stdout.readline()
+                    line = await stream.readline()
                     if not line:
                         break
                     decoded = line.decode("utf-8", errors="replace").rstrip()
                     if not decoded:
                         continue
                     output_lines.append(decoded)
+                    if is_stderr:
+                        stderr_lines.append(decoded)
                     pending_buffer.append(decoded)
                     if len(pending_buffer) > MAX_OUTPUT_LINES_PER_MESSAGE:
                         pending_buffer.pop(0)
@@ -172,12 +181,14 @@ class NmapTool(ToolBase):
                     await on_progress(progress, pending_buffer.copy())
                     pending_buffer.clear()
 
+            await asyncio.gather(
+                _drain(self._process.stdout),
+                _drain(self._process.stderr, is_stderr=True),
+            )
+
             await self._process.wait()
             returncode = self._process.returncode
-
-            stderr = ""
-            if self._process.stderr is not None:
-                stderr = (await self._process.stderr.read()).decode("utf-8", errors="replace")
+            stderr = "\n".join(stderr_lines)
 
         except Exception as exc:
             self._cleanup()
