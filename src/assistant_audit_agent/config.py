@@ -29,7 +29,14 @@ class AgentConfig(BaseModel):
     server_url: str
     jwt_token: str
     agent_name: str
-    allowed_tools: list[str] = ["nmap", "oradad", "ad_collector"]
+    allowed_tools: list[str] = [
+        "nmap",
+        "oradad",
+        "config-oradad",
+        "ad_collector",
+        "ssh-collect",
+        "winrm-collect",
+    ]
     heartbeat_interval: int = 30
     cert_paths: CertPaths = CertPaths()
     reconnect_base_delay: float = 1.0
