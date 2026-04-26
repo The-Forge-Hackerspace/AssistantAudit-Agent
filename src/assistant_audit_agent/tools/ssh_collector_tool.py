@@ -268,7 +268,20 @@ def collect_via_ssh(
     except Exception:
         pass
 
-    client.set_missing_host_key_policy(paramiko.RejectPolicy())
+    # Un agent on-prem audite des hotes arbitraires fournis par l'API ; un known_hosts
+    # pre-rempli n'est pas realiste. On accepte les nouveaux hotes en loggant le
+    # fingerprint pour traçabilite (TOFU). Les hotes deja connus restent verifies via
+    # load_system_host_keys ci-dessus.
+    class _LogAndAccept(paramiko.MissingHostKeyPolicy):
+        def missing_host_key(self, _client, hostname, key):  # noqa: D401
+            logger.warning(
+                "SSH host inconnu accepte (TOFU) : %s key_type=%s fingerprint=%s",
+                hostname,
+                key.get_name(),
+                key.fingerprint if hasattr(key, "fingerprint") else "?",
+            )
+
+    client.set_missing_host_key_policy(_LogAndAccept())
 
     try:
         connect_kwargs: dict = {
