@@ -220,11 +220,21 @@ def collect_via_winrm(
 
         logger.info("Connexion WinRM établie vers %s", host)
 
+        # Forcer la sortie console PowerShell en UTF-8 : sans cela, les commandes
+        # natives Windows (auditpol, netstat...) repondent dans la code page OEM
+        # locale (cp850 sur un Windows fr) et les caracteres accentues sont
+        # casses au decodage UTF-8 cote agent ("Stratégie" -> "Strat?gie").
+        utf8_prologue = (
+            "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
+            "$OutputEncoding=[System.Text.Encoding]::UTF8; "
+            "chcp 65001 | Out-Null; "
+        )
+
         raw_outputs: dict[str, str] = {}
         total = len(WINDOWS_COMMANDS)
         for idx, (cmd_name, cmd) in enumerate(WINDOWS_COMMANDS.items(), 1):
             try:
-                resp = session.run_ps(cmd)
+                resp = session.run_ps(utf8_prologue + cmd)
                 output = resp.std_out.decode("utf-8", errors="replace").strip()
                 if resp.status_code != 0:
                     err = resp.std_err.decode("utf-8", errors="replace").strip()
