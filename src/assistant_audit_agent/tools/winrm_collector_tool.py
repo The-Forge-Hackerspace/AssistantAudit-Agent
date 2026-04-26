@@ -222,22 +222,39 @@ def collect_via_winrm(
 
         # Forcer la sortie console PowerShell en UTF-8 : sans cela, les commandes
         # natives Windows (auditpol, netstat...) repondent dans la code page OEM
-        # locale (cp850 sur un Windows fr) et les caracteres accentues sont
+        # locale (cp850 sur Windows fr) et les caracteres accentues sont
         # casses au decodage UTF-8 cote agent ("Stratégie" -> "Strat?gie").
         utf8_prologue = (
-            "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
             "$OutputEncoding=[System.Text.Encoding]::UTF8; "
+            "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
+            "$PSDefaultParameterValues['Out-File:Encoding']='utf8'; "
             "chcp 65001 | Out-Null; "
         )
+
+        def _decode_winrm_bytes(raw: bytes) -> str:
+            """Decode la sortie en UTF-8, fallback cp850/cp1252.
+
+            Le prologue PowerShell ne couvre pas tous les natifs Windows
+            (auditpol notamment) — leur sortie peut revenir dans la code page
+            OEM. On essaie UTF-8 strict d'abord, puis on retombe sur cp850
+            (consoles fr OEM) puis cp1252 (ANSI). En dernier recours, decode
+            UTF-8 avec replace.
+            """
+            for enc in ("utf-8", "cp850", "cp1252"):
+                try:
+                    return raw.decode(enc)
+                except UnicodeDecodeError:
+                    continue
+            return raw.decode("utf-8", errors="replace")
 
         raw_outputs: dict[str, str] = {}
         total = len(WINDOWS_COMMANDS)
         for idx, (cmd_name, cmd) in enumerate(WINDOWS_COMMANDS.items(), 1):
             try:
                 resp = session.run_ps(utf8_prologue + cmd)
-                output = resp.std_out.decode("utf-8", errors="replace").strip()
+                output = _decode_winrm_bytes(resp.std_out).strip()
                 if resp.status_code != 0:
-                    err = resp.std_err.decode("utf-8", errors="replace").strip()
+                    err = _decode_winrm_bytes(resp.std_err).strip()
                     if err:
                         output = f"ERROR: {err}"
                 raw_outputs[cmd_name] = output
