@@ -16,7 +16,6 @@ import json
 import logging
 import random
 import ssl
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Coroutine
 from urllib.parse import urlparse

@@ -10,7 +10,6 @@ import pytest
 from assistant_audit_agent.config import (
     AgentConfig,
     CertPaths,
-    _B64_PREFIX,
     _decrypt_token,
     _encrypt_token,
 )

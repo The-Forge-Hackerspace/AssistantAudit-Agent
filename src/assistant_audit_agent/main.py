@@ -112,7 +112,7 @@ def status() -> None:
         return
 
     config = AgentConfig.load()
-    click.echo(f"État : enrôlé")
+    click.echo("État : enrôlé")
     click.echo(f"Agent : {config.agent_name} ({config.agent_uuid})")
     click.echo(f"Serveur : {config.server_url}")
     click.echo(f"Outils autorisés : {', '.join(config.allowed_tools)}")

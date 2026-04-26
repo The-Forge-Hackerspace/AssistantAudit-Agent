@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import textwrap
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from assistant_audit_agent.tools import ToolResult
 from assistant_audit_agent.tools.nmap_tool import (
-    ALLOWED_NMAP_FLAGS,
     BLOCKED_NMAP_FLAGS,
     NmapTool,
     _build_nmap_args,
