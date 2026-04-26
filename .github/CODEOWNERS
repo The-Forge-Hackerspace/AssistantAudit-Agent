@@ -1,0 +1,23 @@
+# CODEOWNERS — AssistantAudit-Agent
+#
+# Toute modification d'un fichier matche par un pattern declenche une review
+# obligatoire des owners listes (combinee avec la rule pull_request.require_code_owner_review
+# du ruleset main).
+#
+# Pattern qui match en dernier gagne. Voir
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+
+# Defaut : tout le repo
+* @T0SAGA97
+
+# Securite & enrollment (mTLS, certificats, secrets)
+/src/assistant_audit_agent/enrollment.py        @T0SAGA97
+/src/assistant_audit_agent/websocket_client.py  @T0SAGA97
+/src/assistant_audit_agent/config.py            @T0SAGA97
+
+# Tools qui executent des commandes systeme (surface d'attaque elevee)
+/src/assistant_audit_agent/tools/               @T0SAGA97
+
+# Infra, CI, deps
+/.github/        @T0SAGA97
+/pyproject.toml  @T0SAGA97

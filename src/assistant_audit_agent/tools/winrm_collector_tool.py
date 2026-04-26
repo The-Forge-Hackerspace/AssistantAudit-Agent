@@ -443,7 +443,7 @@ def _parse_winrm_results(result: WinRMCollectResult, raw: dict[str, str]) -> Non
     security["audit_policy"] = raw.get("audit_policy", "")
 
     min_log_size = (
-        min((l.get("max_size_mb", 0) for l in logs), default=0) if logs else 0
+        min((log.get("max_size_mb", 0) for log in logs), default=0) if logs else 0
     )
     security["logs_min_100mb"] = min_log_size >= 100
 

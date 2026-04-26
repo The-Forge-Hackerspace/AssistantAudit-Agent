@@ -1,0 +1,58 @@
+# =============================================================================
+# CI Pipeline — AssistantAudit-Agent
+# Lint Ruff + tests pytest sur Python 3.11 / 3.12 / 3.13.
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Installer ruff
+        run: pip install ruff
+      - name: Lint Ruff
+        run: ruff check src/ tests/ --output-format=github
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Installer le package + deps de dev
+        run: pip install -e ".[dev]"
+      - name: Exécuter pytest
+        run: pytest tests/ -q --tb=short

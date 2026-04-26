@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
@@ -446,7 +445,7 @@ class TestSetupTaskRunner:
     """Tests de la fonction setup_task_runner."""
 
     def test_registers_handlers(self, client: AgentWebSocketClient) -> None:
-        runner = setup_task_runner(client, ["nmap"])
+        setup_task_runner(client, ["nmap"])
 
         assert "new_task" in client._message_handlers
         assert "task_cancel" in client._message_handlers

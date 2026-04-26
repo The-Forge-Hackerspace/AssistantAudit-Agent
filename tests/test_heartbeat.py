@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import logging
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
-from assistant_audit_agent.config import AgentConfig, CertPaths
+from assistant_audit_agent.config import AgentConfig
 from assistant_audit_agent.heartbeat import (
     MAX_MISSED_ACKS,
     HeartbeatService,
