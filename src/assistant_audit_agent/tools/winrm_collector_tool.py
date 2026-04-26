@@ -259,8 +259,15 @@ def collect_via_winrm(
                 output = _decode_winrm_bytes(resp.std_out).strip()
                 if resp.status_code != 0:
                     err = _decode_winrm_bytes(resp.std_err).strip()
-                    if err:
+                    # On n'ecrase jamais un stdout non vide : PowerShell remote
+                    # met du CLIXML sur stderr pour des warnings non-fatals
+                    # (SID non resolu, deprecation...) et renvoie un code de
+                    # sortie != 0 alors que la commande a reussi. Si on a un
+                    # stdout, on le garde et on note l'erreur a part.
+                    if not output and err:
                         output = f"ERROR: {err}"
+                    elif err:
+                        logger.debug("WinRM cmd '%s' stderr (non-fatal): %s", cmd_name, err[:200])
                 raw_outputs[cmd_name] = output
             except Exception as exc:
                 raw_outputs[cmd_name] = f"ERROR: {exc}"
