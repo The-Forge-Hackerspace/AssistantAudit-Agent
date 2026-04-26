@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -169,17 +171,34 @@ class TestSshCollectorExecution:
         assert tool._cancelled is True
 
 
-class TestRejectPolicy:
-    """Vérifie qu'on utilise bien RejectPolicy et pas AutoAddPolicy."""
+class TestHostKeyPolicy:
+    """Verifie la politique TOFU : pas d'AutoAddPolicy silencieuse, log du
+    fingerprint sur premiere connexion, et la classe utilisee est bien
+    une MissingHostKeyPolicy custom (pas RejectPolicy strict)."""
 
-    def test_uses_reject_policy(self) -> None:
-        import inspect
-
+    def test_no_silent_autoadd_policy(self) -> None:
         from assistant_audit_agent.tools import ssh_collector_tool
 
         src = inspect.getsource(ssh_collector_tool.collect_via_ssh)
-        assert "RejectPolicy" in src
+        # AutoAddPolicy ajouterait silencieusement la cle sans log : interdit
         assert "AutoAddPolicy" not in src
+        # On veut bien une politique custom de type MissingHostKeyPolicy
+        assert "MissingHostKeyPolicy" in src
+        # Et un log explicite du fingerprint pour traçabilite
+        assert "fingerprint" in src
+
+    def test_policy_subclasses_missing_host_key_policy(self) -> None:
+        """La politique custom doit declarer hériter de MissingHostKeyPolicy."""
+        from assistant_audit_agent.tools import ssh_collector_tool
+
+        src = inspect.getsource(ssh_collector_tool.collect_via_ssh)
+        # Une classe TOFU heritant de MissingHostKeyPolicy doit etre presente
+        assert re.search(
+            r"class\s+_LogAndAccept\s*\(\s*paramiko\.MissingHostKeyPolicy\s*\)\s*:",
+            src,
+        ), "_LogAndAccept doit heriter de paramiko.MissingHostKeyPolicy"
+        # Et le commentaire/log doit mentionner TOFU pour expliciter l'intention
+        assert "TOFU" in src
 
 
 class TestParseSshResults:

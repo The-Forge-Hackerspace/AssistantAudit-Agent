@@ -40,7 +40,9 @@ WINRM_TIMEOUT = 60
 
 _HOST_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._\-]{0,254}$")
 _USERNAME_PATTERN = re.compile(r"^[^\x00-\x1f\"'`;|&$(){}\[\]<>]{1,256}$")
-_TRANSPORT_WHITELIST = frozenset({"ntlm", "kerberos", "basic", "credssp", "plaintext"})
+# Modes d'auth pywinrm autorises. "plaintext" est accepte par la lib mais
+# transmet le mot de passe en clair sans aucune securite — exclu volontairement.
+_TRANSPORT_WHITELIST = frozenset({"ntlm", "kerberos", "basic", "credssp"})
 
 
 @dataclass

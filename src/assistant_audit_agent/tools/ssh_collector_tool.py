@@ -20,7 +20,11 @@ Paramètres acceptés :
     device_profile: str = "linux_server"
 
 Sécurité :
-    - RejectPolicy : hôtes inconnus rejetés (known_hosts requis côté agent)
+    - Politique TOFU sur les hôtes inconnus : un agent on-prem audite des hôtes
+      arbitraires fournis a la volee par l'API ; un known_hosts pre-rempli n'est
+      pas realiste. La premiere connexion accepte la cle de l'hote en loggant
+      son fingerprint (type + SHA256). Les hotes deja presents dans
+      known_hosts (load_system_host_keys) restent verifies normalement.
     - Credentials chiffrés en transit (EncryptedJSON côté serveur)
     - Validation stricte du host et du device_profile
 """
