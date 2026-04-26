@@ -1,0 +1,38 @@
+# =============================================================================
+# Dependabot auto-merge — AssistantAudit-Agent
+#
+# Active automatiquement le mode auto-merge sur les PRs Dependabot pour les
+# bumps patch et minor. La PR sera mergee (squash) des que :
+#   1. Tous les status checks bloquants sont verts
+#   2. Le code owner (T0SAGA97) approuve via l'UI GitHub
+#
+# Les bumps majeurs ne sont PAS auto-mergés : ils restent en review manuelle
+# car ils peuvent contenir des breaking changes.
+# =============================================================================
+
+name: Dependabot auto-merge
+
+on:
+  pull_request_target:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recuperer les metadonnees Dependabot
+        id: metadata
+        uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7 # v2.4.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Activer auto-merge (patch et minor uniquement)
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
