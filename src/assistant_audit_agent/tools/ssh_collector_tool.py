@@ -302,7 +302,6 @@ def collect_via_ssh(
                 paramiko.Ed25519Key,
                 paramiko.ECDSAKey,
                 paramiko.RSAKey,
-                paramiko.DSSKey,
             ):
                 try:
                     pkey = key_cls.from_private_key(
@@ -315,7 +314,7 @@ def collect_via_ssh(
                     continue
             if pkey is None:
                 raise paramiko.SSHException(
-                    f"Cle privee non supportee (essais Ed25519/ECDSA/RSA/DSS) : {last_err}"
+                    f"Cle privee non supportee (essais Ed25519/ECDSA/RSA) : {last_err}"
                 )
             connect_kwargs["pkey"] = pkey
         elif password:
