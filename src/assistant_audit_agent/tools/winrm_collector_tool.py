@@ -220,15 +220,19 @@ def collect_via_winrm(
 
         logger.info("Connexion WinRM établie vers %s", host)
 
-        # Forcer la sortie console PowerShell en UTF-8 : sans cela, les commandes
-        # natives Windows (auditpol, netstat...) repondent dans la code page OEM
-        # locale (cp850 sur Windows fr) et les caracteres accentues sont
-        # casses au decodage UTF-8 cote agent ("Stratégie" -> "Strat?gie").
+        # Encodage de la sortie des commandes natives Windows.
+        # Probleme : auditpol/netstat... ecrivent leur sortie dans la code page
+        # OEM locale (cp850 sur Windows fr). PowerShell capture ces bytes en
+        # supposant cp1252 (ANSI) par defaut et les caracteres accentues sont
+        # remplaces par U+FFFD avant meme d'arriver a notre agent.
+        # Solution : aligner [Console]::OutputEncoding sur la *vraie* code page
+        # OEM du systeme distant. Get-Culture donne la culture, dont le
+        # TextInfo.OEMCodePage fournit le numero exact a passer a GetEncoding.
         utf8_prologue = (
             "$OutputEncoding=[System.Text.Encoding]::UTF8; "
-            "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
-            "$PSDefaultParameterValues['Out-File:Encoding']='utf8'; "
-            "chcp 65001 | Out-Null; "
+            "[Console]::OutputEncoding="
+            "[System.Text.Encoding]::GetEncoding("
+            "[System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage); "
         )
 
         def _decode_winrm_bytes(raw: bytes) -> str:
