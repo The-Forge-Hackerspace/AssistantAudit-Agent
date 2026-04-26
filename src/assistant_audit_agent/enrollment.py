@@ -118,14 +118,19 @@ def enroll(
         _cleanup_partial_files(certs_dir, cert_paths)
         raise EnrollmentError(f"Erreur d'écriture des certificats : {exc}")
 
-    # Sauvegarder la configuration
-    config = AgentConfig(
-        agent_uuid=agent_uuid,
-        server_url=server_url.rstrip("/"),
-        jwt_token=agent_token,
-        agent_name=effective_name,
-        cert_paths=cert_paths,
-    )
+    # Sauvegarder la configuration (utilise allowed_tools du serveur comme source
+    # de verite si fournis ; sinon fallback sur le default du modele).
+    config_kwargs: dict = {
+        "agent_uuid": agent_uuid,
+        "server_url": server_url.rstrip("/"),
+        "jwt_token": agent_token,
+        "agent_name": effective_name,
+        "cert_paths": cert_paths,
+    }
+    server_allowed_tools = data.get("allowed_tools") or []
+    if server_allowed_tools:
+        config_kwargs["allowed_tools"] = server_allowed_tools
+    config = AgentConfig(**config_kwargs)
 
     try:
         config.save(config_path)

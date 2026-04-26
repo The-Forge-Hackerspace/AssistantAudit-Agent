@@ -15,6 +15,9 @@ dependencies = [
     "click>=8.1",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
+    "paramiko>=3.4",
+    "pywinrm>=0.4",
+    "defusedxml>=0.7",
 ]
 
 [project.optional-dependencies]

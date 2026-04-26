@@ -71,6 +71,8 @@ def start() -> None:
     from assistant_audit_agent.tools.ad_collector_tool import ADCollectorTool
     from assistant_audit_agent.tools.nmap_tool import NmapTool
     from assistant_audit_agent.tools.oradad_tool import OradadTool
+    from assistant_audit_agent.tools.ssh_collector_tool import SshCollectorTool
+    from assistant_audit_agent.tools.winrm_collector_tool import WinRMCollectorTool
 
     config = AgentConfig.load()
     client = AgentWebSocketClient(config)
@@ -89,6 +91,8 @@ def start() -> None:
     runner.register_tool(NmapTool())
     runner.register_tool(OradadTool())
     runner.register_tool(ADCollectorTool())
+    runner.register_tool(SshCollectorTool())
+    runner.register_tool(WinRMCollectorTool())
 
     click.echo(f"Démarrage de l'agent {config.agent_name} → {config.server_url}")
 
