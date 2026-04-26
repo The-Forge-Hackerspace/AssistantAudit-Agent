@@ -294,10 +294,29 @@ def collect_via_ssh(
         }
 
         if private_key:
-            pkey = paramiko.RSAKey.from_private_key(
-                io.StringIO(private_key),
-                password=passphrase,
-            )
+            # Le client n'envoie pas le type de cle ; on essaie chaque format
+            # supporte par paramiko jusqu'a en trouver un qui charge correctement.
+            pkey = None
+            last_err: Exception | None = None
+            for key_cls in (
+                paramiko.Ed25519Key,
+                paramiko.ECDSAKey,
+                paramiko.RSAKey,
+                paramiko.DSSKey,
+            ):
+                try:
+                    pkey = key_cls.from_private_key(
+                        io.StringIO(private_key),
+                        password=passphrase,
+                    )
+                    break
+                except (paramiko.SSHException, ValueError) as exc:
+                    last_err = exc
+                    continue
+            if pkey is None:
+                raise paramiko.SSHException(
+                    f"Cle privee non supportee (essais Ed25519/ECDSA/RSA/DSS) : {last_err}"
+                )
             connect_kwargs["pkey"] = pkey
         elif password:
             connect_kwargs["password"] = password
